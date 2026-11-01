@@ -32,9 +32,10 @@ flowchart LR
 2. **Prepare** (`internal/raster`): converts to `*image.NRGBA`, composites
    alpha over the `Background` color, and optionally applies the JPEG EXIF
    orientation (phase 5).
-3. **Resize** (`internal/raster`): an area-averaging (box) downscale in linear
-   light to exactly `cols·pw × rows·ph` pixels, where `pw×ph` is the current
-   Mode's pixels per cell. This step uses no third-party resampler, so the
+3. **Resize** (`internal/raster`): an area-averaging (box) downscale in sRGB
+   to exactly `cols·pw × rows·ph` pixels, where `pw×ph` is the current
+   Mode's pixels per cell (linear-light resizing was measured worse for both
+   shipped modes). This step uses no third-party resampler, so the
    output is deterministic and golden files stay stable across Go versions.
 4. **Render** (`internal/glyph`): the selected Mode turns each `pw×ph` block
    into one `Cell{Rune, FG, BG}`.
@@ -186,7 +187,7 @@ Design rules:
 | Path | Owns |
 |---|---|
 | `gotuipic` (root) | Public API, options, validation, `Art`, error values |
-| `internal/raster` | Alpha compositing, orientation, linear-light box resize |
+| `internal/raster` | Alpha compositing, orientation, sRGB box resize |
 | `internal/glyph` | Modes: ASCII ramp, sextant table, exact 2-color partition, cell rendering |
 | `internal/palette` | xterm 16/256 tables, Oklab conversion, nearest color, dithering |
 | `internal/ansi` | SGR encoder |

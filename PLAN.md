@@ -7,13 +7,46 @@ ship: `ModeSextant` (default; the exact 2-color partition that
 terminal renders it). Each phase ends with green tests and a usable library,
 and lands its tests and examples in the same change as its code.
 
-> **Open decision — the ASCII algorithm.** `tools/stylepreview` rows 1-4
-> (`ascii`, `asciiw`, `asciied`, `asciiwl`) are the candidates; `-rmse`
-> scores them on all three example images. `asciiw` (pick the ramp glyph so
-> FG luma x coverage hits the target luma) wins by a wide margin over the
-> naive baseline and ties-or-beats ED and linear-light resize. This plan
-> implements `asciiw`; if the final pick differs, only the `internal/glyph`
-> ASCII picker changes.
+## Status (vertical slice of phases 1-3, uncommitted)
+
+Done and green (`go vet`, `gofmt`, `go test -race ./...`):
+
+- root: `Convert`/`ConvertReader`/`ConvertFile`, all options except dither,
+  `Art` + `At`/`Plain`/`String`/`WriteTo`, `ProfileFromEnv`, MaxPixels
+  header guard before allocation, geometry (fit contain/stretch/crop),
+  PNG/JPEG/GIF registered.
+- `internal/raster`: alpha-over-background prepare, center `CropAspect`,
+  deterministic sRGB `BoxResize`.
+- `internal/glyph`: `asciiw` weighted picker (+ plain picker for
+  `ColorNone`), `sextantx` exact-partition DP (property-tested against an
+  exhaustive brute-force oracle), the U+1FB00 sextant table verified
+  against UnicodeData names - Unicode numbers sextants row-major so the
+  mask *is* the code-point index, with the block's two gaps (left/right
+  columns) served by legacy ▌ ▐ and █.
+- `internal/palette`: Oklab, xterm 16/256 tables, identity nearest on
+  palette, dither not yet wired.
+- `internal/ansi`: change-only SGR emission, row resets, 16/256/truecolor
+  dialects, default-bg restore.
+- `examples/basic`: file/stdin → art CLI (caller-side env detection).
+
+Still to do, in build order:
+
+1. Phase 0 remainder: testdata fixtures + golden files (`-update` flag),
+   CI workflow, doc.go polish already in.
+2. `DitherBayer4` for the 16/256 palettes + its tests (phase 4 remainder).
+3. Phase 5: `formats` package, EXIF orientation, `ConvertFrames`,
+   `FuzzConvertReader`.
+4. Phase 6: `cmd/gotuipic` (x/term width, proper `-` handling),
+   `examples/modes`, `examples/gif`, `examples/tcell` (separate module).
+5. Phase 7: perf pass against the benchmark budget, godoc, gallery
+   README, CHANGELOG, tag `v0.1.0`.
+
+> **Decided and implemented.** The library implements exactly two
+> algorithms: `sextantx` (stylepreview row 6 - the exact 2-color partition)
+> as `ModeSextant`, the default, and `asciiw` (row 2 - pick the ramp glyph
+> so FG luma x coverage hits the target luma) as `ModeASCII`. Under
+> `ColorNone` ASCII falls back to the classic plain ramp pick, because
+> without color the glyph's own ink is the only carrier of light.
 
 ## Phase 0: Scaffolding
 
@@ -50,7 +83,8 @@ and lands its tests and examples in the same change as its code.
 - Resize: solid stays solid; 2x2 -> 1x1 average exact; never zero-sized.
 - Picker: for every fg in a fixed grid x every target luma, no other ramp
   index has smaller `|fgLuma*pos - target|` (brute force over the 10
-  glyphs); black -> first rune, white -> `@`; `WithInvert` swaps.
+  glyphs); the plain picker used under `ColorNone` maps black -> first
+  rune, white -> last; `WithInvert` reverses the ramp.
 - Decode: fixtures ok; truncated/garbage satisfy `errors.Is`; a header
   claiming 100000x100000 is rejected before allocation (`DecodeConfig`).
 - Invariant: every row has exactly `Cols` runes, all single-width.
@@ -73,10 +107,12 @@ deterministic because ColorNone).
 - All 64 masks map to the expected rune, checking both gap shifts.
 - `left-column-red.png`-style fixtures: red left / blue right halves give
   FG = brighter, mask = right column (`▐`-family), etc.
-- Property: `exactSplit` total error <= 2-means error for every block of
-  `photo.jpg` (2-means kept only as a test oracle), seeded randoms included.
-- Solid red image -> `█` (mask 63); 1-pixel-wide degenerate blocks -> solid
-  glyph with FG = BG = the pixel.
+- Property: `exactSplit` total error <= the exhaustive brute-force minimum
+  plus the mean-rounding tolerance, on random blocks - an exhaustive
+  oracle, not a 2-means comparison (2-means is not in the library).
+- A solid block gives FG == BG == the pixel (every partition is equally
+  good, so the cell renders solid whatever glyph the DP picked); a
+  1-pixel block gives FG = BG = the pixel.
 - Invariants for both modes. Golden: `photo.jpg`, 40 cols, `ColorNone`.
 
 **Example:** `ExampleWithMode` (ascii vs sextant), `examples/modes`.
