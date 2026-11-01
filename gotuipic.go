@@ -1,6 +1,7 @@
 package gotuipic
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"image"
@@ -190,6 +191,22 @@ func ConvertReader(r io.Reader, opts ...Option) (*Art, error) {
 		return nil, err
 	}
 	img, err := decode(r, o.maxPix)
+	if err != nil {
+		return nil, err
+	}
+	return o.run(img), nil
+}
+
+// ConvertBytes renders an image that is already whole in memory - an HTTP
+// response body read into a buffer, a file read from an embed.FS, a
+// base64-decoded blob - without the caller wrapping it in a reader. It is
+// ConvertReader over a bytes.Reader: the slice is only read, never retained.
+func ConvertBytes(b []byte, opts ...Option) (*Art, error) {
+	o, err := resolve(opts)
+	if err != nil {
+		return nil, err
+	}
+	img, err := decode(bytes.NewReader(b), o.maxPix)
 	if err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -222,6 +223,62 @@ func TestDecodeGuards(t *testing.T) {
 	_, err = ConvertFile("/nonexistent/definitely/nope.png")
 	if err == nil || errors.Is(err, ErrInvalidOption) {
 		t.Fatalf("missing file: err = %v", err)
+	}
+	_, err = ConvertBytes(nil, WithWidth(10))
+	if !errors.Is(err, image.ErrFormat) {
+		t.Fatalf("empty slice: err = %v, want image.ErrFormat", err)
+	}
+	_, err = ConvertBytes(pngHeader(100000, 100000))
+	if !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("ConvertBytes bomb header: err = %v, want ErrTooLarge", err)
+	}
+}
+
+// The three input paths must agree byte for byte on the same pixels.
+func TestConvertInputPathsAgree(t *testing.T) {
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, halfRedBlue(40, 20)); err != nil {
+		t.Fatal(err)
+	}
+	data := buf.Bytes()
+	f, err := os.CreateTemp(t.TempDir(), "*.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, c := range []struct {
+		name string
+		fn   func() (*Art, error)
+	}{
+		{"reader", func() (*Art, error) { return ConvertReader(bytes.NewReader(data), WithWidth(12)) }},
+		{"bytes", func() (*Art, error) { return ConvertBytes(data, WithWidth(12)) }},
+		{"file", func() (*Art, error) { return ConvertFile(f.Name(), WithWidth(12)) }},
+		{"image", func() (*Art, error) { return Convert(img, WithWidth(12)) }},
+	} {
+		art, err := c.fn()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if art.Cols != 12 || art.Rows != 3 {
+			t.Fatalf("%s: grid = %dx%d, want 12x3", c.name, art.Cols, art.Rows)
+		}
+		got = append(got, art.String())
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i] != got[0] {
+			t.Fatalf("input path %d produced different art than reader", i)
+		}
 	}
 }
 

@@ -1,9 +1,9 @@
 # Architecture
 
 gotuipic converts a raster image (PNG, JPEG, GIF, and optionally WebP/BMP/TIFF)
-from a file, an `io.Reader` or an `image.Image` into colored UTF-8 text art for
-terminals. It is a pure-Go library with no CGO. The core depends only on the
-standard library.
+from a file path, an `io.Reader`, a `[]byte` or an `image.Image` into colored
+UTF-8 text art for terminals. It is a pure-Go library with no CGO. The core
+depends only on the standard library.
 
 - Module: `github.com/radix29/gotuipic`
 - Status: design. `PLAN.md` gives the build order. This file describes the
@@ -16,7 +16,7 @@ tested unit, and only the public package knows about all of them.
 
 ```mermaid
 flowchart LR
-    A[file / io.Reader] -->|decode| B[image.Image]
+    A[file / io.Reader /<br/>[]byte / image.Image] -->|decode| B[image.Image]
     B -->|prepare: alpha composite,<br/>optional orientation| C[RGBA image]
     C -->|resize: area-average<br/>to cols·pw × rows·ph| D[pixel grid]
     D -->|render: Mode maps each<br/>pw×ph block to a Cell| E[Art: grid of Cells]
@@ -134,6 +134,7 @@ package gotuipic
 
 func Convert(img image.Image, opts ...Option) (*Art, error)
 func ConvertReader(r io.Reader, opts ...Option) (*Art, error)
+func ConvertBytes(b []byte, opts ...Option) (*Art, error)
 func ConvertFile(path string, opts ...Option) (*Art, error)
 
 type Art struct {

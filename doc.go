@@ -15,9 +15,16 @@
 // anywhere unasked. The caller decides width and color depth; [Art] is the
 // product, and [Art.String] is one rendering of it.
 //
+// Input is whatever you have: a file path ([ConvertFile]), an [io.Reader]
+// such as stdin, a socket, a pipe or an HTTP response body
+// ([ConvertReader]), a byte slice already in memory ([ConvertBytes]), or a
+// decoded [image.Image] you produced yourself ([Convert]). The format is
+// sniffed from the stream header, so names and extensions are irrelevant.
+//
 //	art, err := gotuipic.ConvertFile("cat.jpg", gotuipic.WithWidth(80))
 //	if err != nil {
 //		return err
 //	}
+//	// Art is the product: print it as ANSI, or read the cells.
 //	fmt.Print(art)
 package gotuipic
