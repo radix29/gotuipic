@@ -32,7 +32,7 @@ if err != nil {
 fmt.Print(art) // ANSI; art.Plain() for runes; art.Cells for TUIs
 ```
 
-Or run the shipped CLI:
+Or run the example program (a `cmd/gotuipic` CLI is planned):
 
 ```sh
 go run ./examples/basic -w 100 tools/stylepreview/testdata/sample.jpg | less -R
@@ -40,7 +40,9 @@ go run ./examples/basic -w 100 tools/stylepreview/testdata/sample.jpg | less -R
 
 The library never reads `$TERM`, `$COLORTERM` or `$NO_COLOR`, queries the
 terminal size, or checks for a TTY - pass a width, and pick a profile
-(`gotuipic.ProfileFromEnv` helps programs that want auto-detection).
+(`gotuipic.ProfileFromEnv` helps programs that want auto-detection: the
+caller passes `os.Getenv`, so the library itself still reads nothing. An
+unset or empty `TERM`, `dumb` and `off` give `ColorNone`.)
 
 ## Getting an image in
 
@@ -63,8 +65,8 @@ art, err := gotuipic.ConvertReader(os.Stdin, gotuipic.WithWidth(100))
 ```
 
 ```go
-// An HTTP response body. The stream is consumed once, decoded from its
-// header, and never buffered by you; Go's transport already inflates gzip
+// An HTTP response body. The stream is read once into memory (capped by
+// WithMaxBytes) and decoded from its header, with no buffer of yours; Go's transport already inflates gzip
 // responses it asked for, so this reads real PNG/JPEG bytes.
 resp, err := http.Get("https://picsum.photos/800/600")
 if err != nil {
@@ -80,7 +82,7 @@ art, err := gotuipic.ConvertReader(resp.Body,
 ```
 
 ```go
-// A producer goroutine feeding a pipe - no temp file, no full copy.
+// A producer goroutine feeding a pipe - no temp file; the receiving side buffers it in memory, capped by WithMaxBytes.
 r, w := io.Pipe()
 go func() { _ = png.Encode(w, img); w.Close() }()
 art, err := gotuipic.ConvertReader(r, gotuipic.WithWidth(80))
@@ -131,7 +133,7 @@ import (
 
 That is exactly what the planned opt-in `formats` package will wrap, so the
 core stays standard-library-only. Animated GIFs give the first frame for
-now; `ConvertFrames` is planned (see `PLAN.md`).
+now; `ConvertFrames` is planned.
 
 ## Getting the art out
 
@@ -188,93 +190,48 @@ same one from several goroutines.
 | `WithMode(ModeSextant\|ModeASCII)` | `ModeSextant` | glyph style |
 | `WithColor(ColorTrueColor\|ColorANSI256\|ColorANSI16\|ColorNone)` | `ColorTrueColor` | color depth |
 | `WithRamp(" .:-=+*#%@")` | that ramp | ASCII glyphs, dark to light |
-| `WithInvert(true)` | false | reverse the ramp, for terminals that show glyphs as ink on a light background |
-| `WithBackground(c)` | black | what transparent pixels composite onto |
-| `WithMaxPixels(n)` | 64 Mi pixels | decompression-bomb guard, checked on the header before decoding |
+| `WithInvert(true)` | false | reverse the ASCII ramp, for terminals that show glyphs as ink on a light background; **ASCII mode only**, no effect on sextant |
+| `WithBackground(c)` | black | what transparent pixels composite onto (nil keeps the default) |
+| `WithMaxPixels(n)` | 64 Mi pixels | decompression-bomb guard, checked on the header before decoding; also applied to `Convert(image.Image)` |
+| `WithMaxCells(n)` | 1 Mi cells | cap on output `Cols*Rows`; larger requests are `ErrInvalidOption` |
+| `WithMaxBytes(n)` | 64 MiB | cap on input read by `ConvertReader`/`ConvertBytes`/`ConvertFile`; longer is `ErrTooLarge` |
 
 Bad option values are collected and returned together as one
 `ErrInvalidOption` (`errors.Is` works), not at construction.
 
 ## Gallery
 
-Everything below is the actual output on the three example photos that ship
-in `tools/stylepreview/testdata` - `sample.jpg` (a cat), `sample-fruit.jpg`
-and `sample-landscape.jpg`, all 800x600. The blocks are byte-for-byte what
-the command prints, trailing blanks included.
+The three example photos that ship in `tools/stylepreview/testdata` (all 800x600), each shown as the original and then as `ModeSextant` output in a truecolor terminal, 100 columns wide (`-w 100`):
 
-`go run ./examples/basic -mode ascii -color none -w 56 tools/stylepreview/testdata/sample.jpg`
+### Cat
 
-```
-**#*+*#########**#####*##########*#######*++**#******#**
-##*+*##########=+++###*#####*+==########*+*##**++*##****
-##++*##########=++=-++++++*+++=-*#####***##***####*****#
-#*=*###########+-------::---=-:-*###**+****#####****####
-*+=**##########+-=-----:----==:-*********######*########
-*=***######*###++==--=--------::+*****##################
-+=*#*######*##*=-=+=-+==-:---:::=***####################
-=*##***#######*=+=--=-+=:=-:-=--*######**###############
-*##****######**+==++==--::=+=--+*#######################
-###**+***####****+++++==++++=--**#######################
-###****#######***++++====------=########################
-###*#######*#+**++++=--:::::--:.=#%#####################
-##*#######**#*++***++==-:.::--:...-=+*##################
-#**##########***++*++==-----:-::...:::=*#######*########
-#*##*########***#*+==+===---::::.....::::+####++########
-*###########%#***++=+==----=--:::....::::::-*#+*#*######
-*#%#%%###*##%#+**+=--==-:-::--:::. ..::::::::-*#*#####*#
-#####%###*%#++##*++=-:-==-:----::. ..::::::::.:*#####**#
-#%%##%%##**+*###*+==--:==+--:........:::::::::::+####**#
-%%%%#%%#=+#%%##**+++--:-*=::--:::::::::--=---::.:+#**#**
-%%%%#*+**######**#++=-=:+=++==---::---:::-----:::.**###*
-```
+Original:
 
-`go run ./examples/basic -mode ascii -color none -w 40 tools/stylepreview/testdata/sample-fruit.jpg`
+![Cat original](docs/img/sample.jpg)
 
-```
--=--==++:----=*-====*+****+**=*++=------
-=--===++.===:=*+==++++****=**=*+*=:-----
-======*+.=*+-+***+*#*#####+**=##%-.-----
--=+===*+.===-=*+-=-=+####*#**+*#*=:-----
-==+++**+-----+-  :...####*+##*+++==*#*-=
-=:-::-*+.-==-=.      =###=:=***+++===--=
--.:::=*+.-++-==      =*##=:=**++=+=:-=--
-:....:=+.--=:++.... .=####****+-=--..=--
-:::::::=----==========+***+===-......::-
-.............::::::.::::::::::...... .::
-----::---========-:-##%%%%%###-:::.  ...
-=-----++++++++++++--#%%%%%%%%#-::.      
-:::::-++++=====+++--###**#%###=-::....  
-.:-:.:--------===-:-*%%%%###*#=:::......
-..:---::::-===--::::-=====----::........
-```
+Sextant, `go run ./examples/basic -w 100 tools/stylepreview/testdata/sample.jpg`:
 
-**Sextant** carries its picture in the two colors of each cell. Markdown
-viewers drop the escape sequences, so the two blocks below are the same
-renders minus the color - run the commands in a real terminal to see them.
-Six rows of the landscape, `FitCrop` into a 40x6 box, `ModeASCII` then
-`ModeSextant`:
+![Cat as sextant art in a terminal](docs/img/term-sample.png)
 
-`go run ./examples/basic -w 40 -h 6 -fit crop -mode ascii -color none tools/stylepreview/testdata/sample-landscape.jpg`
+### Fruit
 
-```
---===++***+*++++********++++++=======+==
----===+++===+==-=====+*#+-:::::::::-----
-=++-==-===+=+==+=+*****+-:::::::::::--==
-+***++**++++====*+=====++=--:::::-::::--
-####%#++=++*+=+++*==--=======--:::.:::::
-*#+++###+++*++++++*#=---------=--::::...
-```
+Original:
 
-`go run ./examples/basic -w 40 -h 6 -fit crop -mode sextant -color none tools/stylepreview/testdata/sample-landscape.jpg`
+![Fruit original](docs/img/sample-fruit.jpg)
 
-```
-🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬂🬆🬂🬂🬊🬂🬂🬂🬂🬂🬎🬂🬂🬎🬎🬎🬂🬂🬑🬂🬂🬊🬂
-🬝🬋🬱🬵🬩🬅🬇🬚🬝🬆🬵🬩🬹🬹🬭🬭🬊🬀🬞🬏🬞🬭🬻🬹🬓🬆🬂🬎🬁🬎🬂🬎🬂🬂🬊🬎🬁🬂🬂🬂
-🬭🬹🬲🬏🬂🬙🬶🬞🬹🬹🬹🬱🬓🬎🬂🬨🬐🬵🬆🬂🬂🬂🬂🬲🬭🬏🬎🬎🬂🬀🬟🬭🬹🬞🬭🬭🬉🬂🬩🬥
-🬵🬱🬭🬹🬹🬹🬹🬹🬏🬭🬭🬭🬭🬭🬭🬰▐🬏🬂🬂🬂🬂🬂🬂🬀🬺🬹🬹🬭🬭🬒🬁🬀🬊🬆🬦🬵🬉🬊🬄
-🬷🬍🬝🬷🬛🬄🬒🬂🬦🬍🬬🬮🬶🬐🬖🬎🬎🬎🬭🬏🬂🬊🬊🬂🬎🬂🬂🬎🬋🬹🬱🬏🬒🬂🬀🬡🬭🬜🬊🬵
-🬡🬍🬂🬂🬡🬷🬺🬹🬹🬭🬞🬏🬦🬏🬭🬖🬯🬵🬥🬺🬱🬏🬊🬎🬎🬎🬎🬎🬊🬊🬎🬌🬹🬹🬹🬹🬹🬹🬭🬮
-```
+Sextant, `go run ./examples/basic -w 100 tools/stylepreview/testdata/sample-fruit.jpg`:
+
+![Fruit as sextant art in a terminal](docs/img/term-sample-fruit.png)
+
+### Landscape
+
+Original:
+
+![Landscape original](docs/img/sample-landscape.jpg)
+
+Sextant, `go run ./examples/basic -w 100 tools/stylepreview/testdata/sample-landscape.jpg`:
+
+![Landscape as sextant art in a terminal](docs/img/term-sample-landscape.png)
 
 `tools/stylepreview` writes full-color montages of every style it measured,
 shipped and rejected, into `tools/stylepreview/preview-*.png`.
@@ -361,6 +318,5 @@ allocated, so a 100000x100000 PNG header is rejected cheaply.
 
 ## Status
 
-Alpha, untagged. Design: `ARCHITECTURE.md`; build order and progress:
-`PLAN.md`; mode measurements (why sextant + ascii won):
+Alpha, untagged. Design: `ARCHITECTURE.md`; open review findings: `FIX_PLAN.md`; mode measurements (why sextant + ascii won):
 `tools/stylepreview/`. MIT license.

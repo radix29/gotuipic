@@ -3,62 +3,32 @@ package glyph
 import (
 	"image/color"
 	"math"
-	"math/bits"
 )
 
-// splitBuf holds the reusable subset-sum arrays for exactSplit so Render
-// allocates once per call instead of once per cell.
-type splitBuf struct {
-	sr, sg, sb, q []float64
-	cnt           []uint8
-}
+// subpixels is the block size the split handles: the 2x3 sextant cell.
+const subpixels = 6
 
-// exactSplit finds the two-color split of a block with the least total
-// squared RGB error. Every non-trivial split is tried; a subset-sum DP
-// gives each split's error in O(1), so the 2x3 block (63 splits) is cheap.
-// This is the provably best fg/bg choice for one sextant glyph - 2-means
-// stalls at local minima and measures strictly worse. fg ends up the
-// brighter cluster.
+// exactSplit finds the two-color split of a 2x3 block with the least total
+// squared sRGB error. Every non-trivial split (62 of them, counting a split
+// and its complement once each) is tried; subset sums give each split's
+// error in O(1). This is the provably best fg/bg choice for one sextant
+// glyph - 2-means stalls at local minima and measures strictly worse. fg
+// ends up the brighter cluster.
 //
-// Blocks of 16 subpixels or fewer run the DP; anything larger degrades to
-// a single average color (defensive only - no shipped mode exceeds 6).
-func exactSplit(sub []color.NRGBA, buf *splitBuf) (uint32, color.NRGBA, color.NRGBA) {
-	n := len(sub)
-	switch {
-	case n == 0:
-		return 0, color.NRGBA{}, color.NRGBA{}
-	case n == 1:
-		return 1, sub[0], sub[0]
-	case n > 16:
-		m := meanColor(sub)
-		return uint32(1<<16 - 1), m, m
-	}
-	p := make([][3]float64, n)
+// A block whose two means round to the same color is a flat block: it
+// returns mask 0 (a space) with both colors set to that mean.
+func exactSplit(sub *[subpixels]color.NRGBA) (uint32, color.NRGBA, color.NRGBA) {
+	const lim = 1 << subpixels
+	var p [subpixels][3]float64
 	for i, c := range sub {
 		p[i] = [3]float64{float64(c.R), float64(c.G), float64(c.B)}
 	}
-	mask, f, b := exactSplitCore(p, buf)
-	return mask, roundColor(f), roundColor(b)
-}
-
-// exactSplitCore is the space-agnostic DP: p holds the subpixels in
-// whatever RGB space the metric lives in (sRGB for the shipped mode).
-func exactSplitCore(p [][3]float64, buf *splitBuf) (uint32, [3]float64, [3]float64) {
-	n := len(p)
-	lim := 1 << uint(n)
-	if len(buf.sr) < lim {
-		buf.sr = make([]float64, lim)
-		buf.sg = make([]float64, lim)
-		buf.sb = make([]float64, lim)
-		buf.q = make([]float64, lim)
-		buf.cnt = make([]uint8, lim)
-	}
-	sr, sg, sb, q, cnt := buf.sr[:lim], buf.sg[:lim], buf.sb[:lim], buf.q[:lim], buf.cnt[:lim]
-	sr[0], sg[0], sb[0], q[0], cnt[0] = 0, 0, 0, 0, 0
+	var sr, sg, sb, q [lim]float64
+	var cnt [lim]uint8
 	for m := 1; m < lim; m++ {
 		lsb := m & -m
 		prev := m ^ lsb
-		i := bits.TrailingZeros(uint(lsb))
+		i := trailingZeros6(lsb)
 		r, g, b := p[i][0], p[i][1], p[i][2]
 		sr[m] = sr[prev] + r
 		sg[m] = sg[prev] + g
@@ -71,7 +41,7 @@ func exactSplitCore(p [][3]float64, buf *splitBuf) (uint32, [3]float64, [3]float
 	bm := 1
 	for m := 1; m < lim-1; m++ {
 		k := float64(cnt[m])
-		nk := float64(n) - k
+		nk := float64(subpixels) - k
 		dr, dg, db := tr-sr[m], tg-sg[m], tb-sb[m]
 		sse := q[m] - (sr[m]*sr[m]+sg[m]*sg[m]+sb[m]*sb[m])/k +
 			(tq - q[m]) - (dr*dr+dg*dg+db*db)/nk
@@ -80,11 +50,26 @@ func exactSplitCore(p [][3]float64, buf *splitBuf) (uint32, [3]float64, [3]float
 		}
 	}
 	mF := div3(sr[bm], sg[bm], sb[bm], float64(cnt[bm]))
-	mC := div3(tr-sr[bm], tg-sg[bm], tb-sb[bm], float64(n)-float64(cnt[bm]))
-	if lum3(mC) > lum3(mF) {
-		return uint32((lim - 1) &^ bm), mC, mF
+	mC := div3(tr-sr[bm], tg-sg[bm], tb-sb[bm], float64(subpixels)-float64(cnt[bm]))
+	fg, bg := roundColor(mF), roundColor(mC)
+	if fg == bg {
+		return 0, fg, bg
 	}
-	return uint32(bm), mF, mC
+	if lum3(mC) > lum3(mF) {
+		return uint32((lim - 1) &^ bm), roundColor(mC), roundColor(mF)
+	}
+	return uint32(bm), fg, bg
+}
+
+// trailingZeros6 returns the index of the single set bit in a power of two
+// below 64.
+func trailingZeros6(x int) int {
+	n := 0
+	for x > 1 {
+		x >>= 1
+		n++
+	}
+	return n
 }
 
 func div3(r, g, b, k float64) [3]float64 { return [3]float64{r / k, g / k, b / k} }

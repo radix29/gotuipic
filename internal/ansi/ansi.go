@@ -57,21 +57,29 @@ func Encode(w io.Writer, p Profile, cols int, cells []Cell) (int64, error) {
 			case TrueColor:
 				out = fmt.Appendf(out, "\x1b[38;2;%d;%d;%dm", c.FG.R, c.FG.G, c.FG.B)
 			case ANSI256:
-				out = fmt.Appendf(out, "\x1b[38;5;%dm", c.IdxFG)
+				if c.IdxFG < 0 || c.IdxFG > 255 {
+					out = append(out, "\x1b[39m"...)
+				} else {
+					out = fmt.Appendf(out, "\x1b[38;5;%dm", c.IdxFG)
+				}
 			case ANSI16:
-				out = fmt.Appendf(out, "\x1b[%dm", fg16[c.IdxFG])
+				if c.IdxFG < 0 || c.IdxFG > 15 {
+					out = append(out, "\x1b[39m"...)
+				} else {
+					out = fmt.Appendf(out, "\x1b[%dm", fg16[c.IdxFG])
+				}
 			}
 			prevFG, haveFG = c.FG, true
 		}
-		if c.BG.A != 0 {
+		if c.BG.A != 0 && (p == TrueColor || c.IdxBG >= 0) {
 			if !haveBG || c.BG != prevBG {
 				switch p {
 				case TrueColor:
 					out = fmt.Appendf(out, "\x1b[48;2;%d;%d;%dm", c.BG.R, c.BG.G, c.BG.B)
 				case ANSI256:
-					out = fmt.Appendf(out, "\x1b[48;5;%dm", c.IdxBG)
+					out = fmt.Appendf(out, "\x1b[48;5;%dm", min(c.IdxBG, 255))
 				case ANSI16:
-					out = fmt.Appendf(out, "\x1b[%dm", fg16[c.IdxBG]+10)
+					out = fmt.Appendf(out, "\x1b[%dm", fg16[min(c.IdxBG, 15)]+10)
 				}
 				prevBG, haveBG = c.BG, true
 			}

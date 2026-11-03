@@ -9,16 +9,16 @@ GIF; WebP/BMP/TIFF opt-in) from a file, an `io.Reader` or an `image.Image`
 into colored UTF-8 text art for terminals. Module
 `github.com/radix29/gotuipic`, Go 1.27, MIT license.
 
-**Status: design stage.** No code exists yet.
-- `PLAN.md` gives the phased build order. Implement one phase at a time,
-  with its tests and examples in the same change.
+**Status: core implemented** (both modes, ANSI encoder, root API). Planned
+and unbuilt parts are marked as such in `ARCHITECTURE.md`.
+- `FIX_PLAN.md` lists open review findings and the order to fix them.
 - `ARCHITECTURE.md` is the design: pipeline, geometry, modes, color, API and
   package map. Read the relevant section before touching a stage, and update
   it when the code changes the design.
 
 ## Build & verify
 
-Plain `go`, no Makefile (once `go.mod` exists):
+Plain `go`, no Makefile :
 
 ```sh
 go build ./... && go test ./... && gofmt -w . && go vet ./...

@@ -9,7 +9,7 @@ import "strings"
 //
 // The mapping: NO_COLOR (any non-empty value) means ColorNone;
 // COLORTERM=truecolor/24bit means ColorTrueColor; a 256color-capable TERM
-// means ColorANSI256; TERM=dumb or TERM=off means ColorNone; everything
+// means ColorANSI256; an empty TERM, TERM=dumb or TERM=off means ColorNone; everything
 // else falls back to ColorANSI16.
 func ProfileFromEnv(getenv func(string) string) ColorProfile {
 	if getenv == nil {

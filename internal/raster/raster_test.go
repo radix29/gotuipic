@@ -91,3 +91,16 @@ func TestCropAspectCenters(t *testing.T) {
 		t.Fatal("no-op crop must return the input image")
 	}
 }
+
+func TestCropAspectNonOriginSource(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(10, 20, 14, 22)) // 4x2, not at the origin
+	for y := 20; y < 22; y++ {
+		for x := 10; x < 14; x++ {
+			src.SetNRGBA(x, y, color.NRGBA{R: uint8(x), G: uint8(y), A: 255})
+		}
+	}
+	out := CropAspect(src, 1) // 4x2 -> 2x2, columns 11 and 12
+	if got := out.NRGBAAt(0, 0); got.R != 11 || got.G != 20 {
+		t.Fatalf("top-left = %+v, want R=11 G=20", got)
+	}
+}

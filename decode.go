@@ -14,10 +14,13 @@ import (
 // allocating pixels, then decodes. Supported formats are whatever the
 // image registry holds; the core pre-registers PNG, JPEG and GIF, and the
 // opt-in formats package adds WebP/BMP/TIFF (a later phase).
-func decode(r io.Reader, maxPixels int64) (image.Image, error) {
-	data, err := io.ReadAll(r)
+func decode(r io.Reader, maxPixels, maxBytes int64) (image.Image, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("gotuipic: read: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("gotuipic: input is over MaxBytes %d: %w", maxBytes, ErrTooLarge)
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {

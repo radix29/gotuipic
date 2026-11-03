@@ -6,8 +6,8 @@ UTF-8 text art for terminals. It is a pure-Go library with no CGO. The core
 depends only on the standard library.
 
 - Module: `github.com/radix29/gotuipic`
-- Status: design. `PLAN.md` gives the build order. This file describes the
-  target shape, and each phase updates it as the code lands.
+- Status: core implemented (both modes, ANSI encoder, root API). Parts not yet
+  built are marked "planned". `FIX_PLAN.md` tracks open review findings.
 
 ## Pipeline
 
@@ -30,9 +30,12 @@ flowchart LR
    the standard `image` registry, so a caller adds a format by blank-importing
    its decoder.
 2. **Prepare** (`internal/raster`): converts to `*image.NRGBA`, composites
-   alpha over the `Background` color, and optionally applies the JPEG EXIF
-   orientation (phase 5).
-3. **Resize** (`internal/raster`): an area-averaging (box) downscale in sRGB
+   alpha over the `Background` color, (EXIF orientation is
+   planned, not built).
+3. **Resize** (`internal/raster`): a box downscale in sRGB. Window boundaries are
+   integer floors, at least one pixel wide, so edge pixels are not weighted
+   fractionally and growing repeats pixels; golden files depend on this exact
+   rule. It scales
    to exactly `cols·pw × rows·ph` pixels, where `pw×ph` is the current
    Mode's pixels per cell (linear-light resizing was measured worse for both
    shipped modes). This step uses no third-party resampler, so the
@@ -53,10 +56,12 @@ rows = round(cols × (imgH / imgW) × CellAspect)
 ```
 
 The row count doesn't depend on the Mode. The Mode only changes how many
-pixels are sampled per cell, so pixel aspect stays correct. `ModeASCII`
-samples 1×2 pixels in a 1:2 cell, which gives square pixels; `ModeSextant`
-samples 2×3, whose pixels are 4:3 tall - close enough. If the
-caller gives both `Width` and `Height`, `Fit` decides whether the image is
+pixels are sampled per cell. The image is always rescaled to
+`cols·pw × rows·ph`, so the cell grid keeps the image's proportions whatever
+the per-cell sample size; the sampled pixels need not be square. The grid
+size is capped by `WithMaxCells` (default 1 Mi cells) so that a huge
+`Width` or an extreme `CellAspect` is reported as `ErrInvalidOption` rather
+than allocating. If the caller gives both `Width` and `Height`, `Fit` decides whether the image is
 contained (default), stretched, or cropped.
 
 ## Modes (pixels per cell → glyph)
@@ -117,11 +122,12 @@ The sextant mask needs a lookup table, not arithmetic. Unicode left out masks
 
 - Nearest-color search runs in **Oklab**, with the palette precomputed once.
 - The 256-color palette is the xterm table. The 6×6×6 cube uses levels
-  `0,95,135,175,215,255` and the gray ramp is `8+10i`. The search tries both
-  the cube and the gray ramp and keeps the closer match.
+  `0,95,135,175,215,255` and the gray ramp is `8+10i`. The search tries the cube and
+  the gray ramp (indices 16-255) and keeps the closer match. Indices 0-15
+  are never chosen because terminal themes redefine them.
 - The 16 ANSI colors vary between terminal themes, so the library uses the
   xterm defaults as an approximation and documents that.
-- `Dither` (`DitherNone`, `DitherBayer4`) applies during palette
+- Planned, not built: `Dither` (`DitherNone`, `DitherBayer4`) applies during palette
   quantization to break up banding; Bayer is position-stable, which suits
   animation. TrueColor never dithers. Error diffusion *between cells* was
   measured for both modes and scored worse, so there is no
@@ -153,7 +159,8 @@ type Cell struct {
 }
 
 // Options: WithWidth, WithHeight, WithFit, WithCellAspect, WithMode,
-// WithColor, WithDither, WithRamp, WithInvert, WithBackground, WithMaxPixels.
+// WithColor, WithRamp, WithInvert (ASCII only), WithBackground,
+// WithMaxPixels, WithMaxCells, WithMaxBytes. Planned: WithDither.
 ```
 
 Design rules:
@@ -165,7 +172,7 @@ Design rules:
   CLI calls it.
 - **`Art` is data, and ANSI is only one way to render it.** A tcell or other
   TUI program reads `Cells` and draws them, never parsing escape sequences.
-  `examples/tcell` shows this. It is a separate module, so the library never
+  A planned `examples/tcell` will show this. It is a separate module, so the library never
   depends on tcell.
 - Options are validated in `Convert` and reported as a single error
   (`ErrInvalidOption` wrapped with details). Decode failures wrap
@@ -181,20 +188,23 @@ Design rules:
 - Escape forms: truecolor uses `38;2;r;g;b` and `48;2;r;g;b`, 256-color uses
   `38;5;n` and `48;5;n`, and 16-color uses `30–37/90–97` and `40–47/100–107`.
 - `ColorNone` output contains no `ESC` byte at all.
-- Output is written through one `bufio.Writer`, with no per-cell allocations.
+- The encoder builds the whole output in one `[]byte` (using `fmt.Appendf`
+  for escapes) and writes it with a single `Write`.
+- A cell with no palette index (`Idx < 0`) in a 256/16 profile emits
+  `ESC[39m` (default foreground) instead of an index.
 
 ## Package map
 
 | Path | Owns |
 |---|---|
 | `gotuipic` (root) | Public API, options, validation, `Art`, error values |
-| `internal/raster` | Alpha compositing, orientation, sRGB box resize |
+| `internal/raster` | Alpha compositing, sRGB box resize, aspect crop (orientation planned) |
 | `internal/glyph` | Modes: ASCII ramp, sextant table, exact 2-color partition, cell rendering |
-| `internal/palette` | xterm 16/256 tables, Oklab conversion, nearest color, dithering |
+| `internal/palette` | xterm 16/256 tables, Oklab conversion, nearest color (dithering planned) |
 | `internal/ansi` | SGR encoder |
-| `formats` | Blank-imports `golang.org/x/image` WebP/BMP/TIFF decoders (opt-in) |
-| `cmd/gotuipic` | CLI: flags, terminal size (`golang.org/x/term`), profile from env |
-| `examples/*` | Runnable programs, including `examples/tcell` (separate module) |
+| `formats` (planned) | Blank-imports `golang.org/x/image` WebP/BMP/TIFF decoders (opt-in) |
+| `cmd/gotuipic` (planned) | CLI: flags, terminal size (`golang.org/x/term`), profile from env |
+| `examples/*` | Runnable programs, including a planned `examples/tcell` (separate module) |
 
 Dependency direction: `cmd` and `examples` → root → `internal/*`. The
 `internal/*` packages don't import each other, except that `glyph` uses
@@ -205,7 +215,7 @@ Dependency direction: `cmd` and `examples` → root → `internal/*`. The
 - **Synthetic inputs** are built in code (solid colors, gradients,
   checkerboards, a transparent-edge image). Committed fixtures in `testdata/`
   are kept small (a few KB) and are used for decoder coverage.
-- **Golden files**: `testdata/golden/<case>.ans` holds the exact encoder
+- **Golden files** (planned): `testdata/golden/<case>.ans` holds the exact encoder
   output. `go test ./... -update` regenerates them. Review every diff.
 - **Invariants for every mode and profile**: `Rows` lines, each with `Cols`
   runes after stripping ANSI; `ColorNone` output contains no `ESC`; each row
@@ -215,8 +225,9 @@ Dependency direction: `cmd` and `examples` → root → `internal/*`. The
   themselves; each sextant mask maps to its code point (table-driven over
   all 64 masks, checking the gap shifts at 21 and 42); the exact partition
   is never worse than 2-means on random blocks, and a solid block renders
-  one color.
+  as a space.
 - **Fuzzing**: `FuzzConvertReader` must never panic or exceed `MaxPixels`.
+  Present in `fuzz_test.go`.
 - **Examples**: `example_test.go` uses `// Output:` with `ColorNone`, so the
   docs are compiled and checked.
 - **Benchmarks**: a 4000×3000 image to 120 columns, for each mode.

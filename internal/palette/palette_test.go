@@ -47,9 +47,19 @@ func TestNearestIsIdentityOnPalette(t *testing.T) {
 			t.Errorf("Nearest16(%v) = %d (%v), want itself", c, got, Table16[got])
 		}
 	}
-	for i, c := range Table256 {
+	// Indices 0-15 are themed by terminals and are never chosen.
+	for i := 16; i < 256; i++ {
+		c := Table256[i]
 		if got := Nearest256(c.R, c.G, c.B); Table256[got] != c {
 			t.Errorf("Nearest256(#%d=%v) = %d (%v), want itself", i, c, got, Table256[got])
+		}
+	}
+}
+
+func TestNearest256SkipsThemedColors(t *testing.T) {
+	for _, v := range [][3]uint8{{0, 0, 0}, {205, 0, 0}, {255, 255, 255}, {127, 127, 127}} {
+		if got := Nearest256(v[0], v[1], v[2]); got < 16 {
+			t.Errorf("Nearest256(%v) = %d, want >= 16", v, got)
 		}
 	}
 }

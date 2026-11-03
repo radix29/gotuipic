@@ -65,6 +65,9 @@ func (a *Art) WriteTo(w io.Writer) (int64, error) {
 	if a.profile == ColorNone {
 		return a.writePlain(w)
 	}
+	if !a.valid() {
+		return 0, nil
+	}
 	var prof ansi.Profile
 	switch a.profile {
 	case ColorANSI256:
@@ -98,7 +101,17 @@ func (a *Art) WriteTo(w io.Writer) (int64, error) {
 	return ansi.Encode(w, prof, a.Cols, cells)
 }
 
+// valid reports whether Cols, Rows and Cells agree. The fields are
+// exported, so the writers treat an inconsistent Art as empty rather than
+// panic.
+func (a *Art) valid() bool {
+	return a.Cols > 0 && a.Rows > 0 && len(a.Cells) == a.Cols*a.Rows
+}
+
 func (a *Art) writePlain(w io.Writer) (int64, error) {
+	if !a.valid() {
+		return 0, nil
+	}
 	out := make([]byte, 0, len(a.Cells)*utf8.UTFMax+1)
 	for i, c := range a.Cells {
 		if i > 0 && i%a.Cols == 0 {

@@ -138,9 +138,8 @@ func TestRenderSextantSolidImageHasEqualColors(t *testing.T) {
 	red := color.NRGBA{255, 0, 0, 255}
 	g := gridFrom(func(x, y int) color.NRGBA { return red }, 2, 3)
 	c := Render(g, ModeSextant, 1, 1, []rune("ab"), true)[0]
-	// A solid block may pick any split, but both colors are the pixel, so
-	// the cell always renders solid red.
-	if c.FG != red || c.BG != red {
+	// A solid block is a space on a red background, never a rare sextant.
+	if c.Rune != ' ' || c.FG != red || c.BG != red {
 		t.Fatalf("solid cell = %+v, want FG == BG == red", c)
 	}
 }

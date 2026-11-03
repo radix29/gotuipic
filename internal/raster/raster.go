@@ -35,8 +35,10 @@ func Prepare(src image.Image, bg color.NRGBA) *image.NRGBA {
 	return out
 }
 
-// BoxResize area-averages src to exactly dw x dh pixels in sRGB. Growing
-// repeats pixels (a nearest-style upscale).dw and dh must be >= 1.
+// BoxResize averages src down to exactly dw x dh pixels in sRGB. Each output
+// pixel averages an integer-floored window of source pixels (at least one),
+// so edge pixels are not fractionally weighted. Growing repeats pixels (a
+// nearest-style upscale). dw and dh must be >= 1, and src must not be empty.
 //
 // This filter is part of the public behavior: golden files depend on its
 // exact output, so never swap in a different resampler. Linear-light
@@ -113,7 +115,7 @@ func CropAspect(src *image.NRGBA, aspect float64) *image.NRGBA {
 	y0 := b.Min.Y + (h-nh)/2
 	out := image.NewNRGBA(image.Rect(0, 0, nw, nh))
 	for y := 0; y < nh; y++ {
-		rowStart := (y0+y)*src.Stride + x0*4
+		rowStart := src.PixOffset(x0, y0+y)
 		copy(out.Pix[y*out.Stride:], src.Pix[rowStart:rowStart+nw*4])
 	}
 	return out

@@ -22,18 +22,16 @@ const (
 
 // Size returns the pixels sampled per cell column and row.
 func Size(m Mode) (pw, ph int) {
-	switch m {
-	case ModeASCII:
+	if m == ModeASCII {
 		return 1, 2
-	default:
-		return 2, 3
 	}
+	return 2, 3
 }
 
 // Valid reports whether m is a defined mode.
 func Valid(m Mode) bool { return m == ModeSextant || m == ModeASCII }
 
-// Cell is one rendered character. BG.A == 0 means "no background" (the
+// Cell is one rendered character, before quantization (colors are NRGBA). BG.A == 0 means "no background" (the
 // terminal default); sextant sets BG, ASCII does not.
 type Cell struct {
 	Rune   rune
@@ -52,7 +50,7 @@ func Render(grid *image.NRGBA, m Mode, cols, rows int, ramp []rune, weighted boo
 	pw, ph := Size(m)
 	cells := make([]Cell, cols*rows)
 	sub := make([]color.NRGBA, pw*ph)
-	var buf splitBuf
+	var six [subpixels]color.NRGBA
 	for cy := 0; cy < rows; cy++ {
 		for cx := 0; cx < cols; cx++ {
 			for sy := 0; sy < ph; sy++ {
@@ -72,8 +70,9 @@ func Render(grid *image.NRGBA, m Mode, cols, rows int, ramp []rune, weighted boo
 					idx = pickPlain(t, len(ramp))
 				}
 				cells[i] = Cell{Rune: ramp[idx], FG: fg}
-			default:
-				mask, fg, bg := exactSplit(sub, &buf)
+			case ModeSextant:
+				copy(six[:], sub)
+				mask, fg, bg := exactSplit(&six)
 				cells[i] = Cell{Rune: sextantGlyph(mask), FG: fg, BG: bg}
 			}
 		}
@@ -159,9 +158,6 @@ func meanColor(sub []color.NRGBA) color.NRGBA {
 		g += uint64(c.G)
 		b += uint64(c.B)
 		n++
-	}
-	if n == 0 {
-		return color.NRGBA{}
 	}
 	return color.NRGBA{R: uint8((r + n/2) / n), G: uint8((g + n/2) / n), B: uint8((b + n/2) / n), A: 255}
 }

@@ -94,12 +94,13 @@ func Nearest16(r, g, b uint8) int {
 }
 
 // Nearest256 returns the palette index whose Oklab distance to the color is
-// smallest, searching both the cube and the gray ramp.
+// smallest, searching the 6x6x6 cube and the gray ramp (indices 16-255).
+// Indices 0-15 are skipped because terminal themes redefine them.
 func Nearest256(r, g, b uint8) int {
 	l, a, bb := lab(r, g, b)
-	best, bi := math.MaxFloat64, 0
-	for i, p := range lab256 {
-		d := d2(l, a, bb, p)
+	best, bi := math.MaxFloat64, 16
+	for i := 16; i < 256; i++ {
+		d := d2(l, a, bb, lab256[i])
 		if d < best {
 			best, bi = d, i
 		}

@@ -74,8 +74,7 @@ func TestExactSplitMatchesBruteForce(t *testing.T) {
 			}
 			p[i] = [3]float64{float64(sub[i].R), float64(sub[i].G), float64(sub[i].B)}
 		}
-		var buf splitBuf
-		mask, fgN, bgN := exactSplit(sub, &buf)
+		mask, fgN, bgN := exactSplit((*[subpixels]color.NRGBA)(sub))
 		fg := [3]float64{float64(fgN.R), float64(fgN.G), float64(fgN.B)}
 		bg := [3]float64{float64(bgN.R), float64(bgN.G), float64(bgN.B)}
 		got := sseOf(p, mask, fg, bg)
@@ -93,15 +92,14 @@ func TestExactSplitMatchesBruteForce(t *testing.T) {
 	}
 }
 
-func TestExactSplitDegenerate(t *testing.T) {
-	var buf splitBuf
+func TestExactSplitFlatBlockIsBlank(t *testing.T) {
 	red := color.NRGBA{255, 0, 0, 255}
-	m, f, b := exactSplit([]color.NRGBA{red}, &buf)
-	if m != 1 || f != red || b != red {
-		t.Fatalf("single pixel: %d %v %v", m, f, b)
+	var sub [subpixels]color.NRGBA
+	for i := range sub {
+		sub[i] = red
 	}
-	m, f, b = exactSplit(nil, &buf)
-	if m != 0 || f != (color.NRGBA{}) || b != (color.NRGBA{}) {
-		t.Fatalf("empty: %d %v %v", m, f, b)
+	m, f, b := exactSplit(&sub)
+	if m != 0 || f != red || b != red {
+		t.Fatalf("flat block: mask %d fg %v bg %v, want mask 0 and red", m, f, b)
 	}
 }

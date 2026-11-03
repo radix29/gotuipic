@@ -18,16 +18,27 @@ import (
 
 // Mode selects the glyph style. Modes are rendered at runtime from the same
 // pipeline; see ARCHITECTURE.md "Modes".
-type Mode = glyph.Mode
+type Mode int
 
 const (
 	// ModeSextant: 2x3 subpixels, two colors per cell, U+1FB00 sextants.
 	// The default and most detailed shipped mode.
-	ModeSextant = glyph.ModeSextant
+	ModeSextant Mode = Mode(glyph.ModeSextant)
 	// ModeASCII: one FG-colored ramp glyph per 1x2 block. Needs no
 	// non-ASCII glyph at all, so it survives any terminal, font, or pipe.
-	ModeASCII = glyph.ModeASCII
+	ModeASCII Mode = Mode(glyph.ModeASCII)
 )
+
+// String returns the mode's name.
+func (m Mode) String() string {
+	switch m {
+	case ModeSextant:
+		return "sextant"
+	case ModeASCII:
+		return "ascii"
+	}
+	return fmt.Sprintf("Mode(%d)", int(m))
+}
 
 // ColorProfile is the color depth of rendered output.
 type ColorProfile int
@@ -73,9 +84,17 @@ const (
 	DefaultRamp = " .:-=+*#%@"
 	// DefaultMaxPixels bounds decoded pixels (decompression-bomb guard).
 	DefaultMaxPixels int64 = 64 << 20
+	// DefaultMaxCells bounds the output grid (Cols*Rows).
+	DefaultMaxCells int64 = 1 << 20
+	// DefaultMaxBytes bounds how much of a stream ConvertReader buffers.
+	DefaultMaxBytes int64 = 64 << 20
 )
 
 const defaultAspect = 0.5
+
+// maxDim clamps a computed grid dimension so extreme aspects cannot
+// overflow int; WithMaxCells rejects such sizes afterwards.
+const maxDim = 1 << 30
 
 var defaultBG = color.NRGBA{0, 0, 0, 255}
 
@@ -89,6 +108,8 @@ type options struct {
 	invert        bool
 	bg            color.NRGBA
 	maxPix        int64
+	maxCells      int64
+	maxBytes      int64
 }
 
 // Option customizes a conversion. Invalid values are reported together as
@@ -97,13 +118,40 @@ type Option func(*options)
 
 // WithWidth sets the output width in columns. Negative or zero is an
 // invalid option; when unset with WithHeight, DefaultWidth is used.
-func WithWidth(n int) Option          { return func(o *options) { o.width = n } }
-func WithHeight(n int) Option         { return func(o *options) { o.height = n } }
-func WithFit(f FitMode) Option        { return func(o *options) { o.fit = f } }
-func WithMode(m Mode) Option          { return func(o *options) { o.mode = m } }
+func WithWidth(n int) Option { return func(o *options) { o.width = n } }
+
+// WithHeight sets the output height in rows. When unset with WithWidth, the
+// height follows the image's aspect ratio.
+func WithHeight(n int) Option { return func(o *options) { o.height = n } }
+
+// WithFit chooses what happens when both width and height are given. The
+// default is FitContain.
+func WithFit(f FitMode) Option { return func(o *options) { o.fit = f } }
+
+// WithMode selects the glyph style. The default is ModeSextant.
+func WithMode(m Mode) Option { return func(o *options) { o.mode = m } }
+
+// WithColor selects the color depth of the output. The default is
+// ColorTrueColor.
 func WithColor(p ColorProfile) Option { return func(o *options) { o.prof = p } }
-func WithInvert(on bool) Option       { return func(o *options) { o.invert = on } }
-func WithMaxPixels(n int64) Option    { return func(o *options) { o.maxPix = n } }
+
+// WithInvert reverses the ASCII ramp (light to dark). It affects ModeASCII
+// only and does nothing for ModeSextant.
+func WithInvert(on bool) Option { return func(o *options) { o.invert = on } }
+
+// WithMaxPixels bounds the decoded image area; larger images fail with
+// ErrTooLarge. It applies to every Convert function. Default
+// DefaultMaxPixels.
+func WithMaxPixels(n int64) Option { return func(o *options) { o.maxPix = n } }
+
+// WithMaxCells bounds the output grid (columns times rows); a request for
+// more fails with ErrInvalidOption. Default DefaultMaxCells.
+func WithMaxCells(n int64) Option { return func(o *options) { o.maxCells = n } }
+
+// WithMaxBytes bounds how many bytes ConvertReader, ConvertBytes and
+// ConvertFile accept; longer input fails with ErrTooLarge. Default
+// DefaultMaxBytes.
+func WithMaxBytes(n int64) Option { return func(o *options) { o.maxBytes = n } }
 
 // WithCellAspect sets the cell's width divided by its height, default 0.5
 // (typical character cells). It controls how many rows the image gets, not
@@ -118,9 +166,13 @@ func WithCellAspect(wDividedByH float64) Option {
 func WithRamp(s string) Option { return func(o *options) { o.ramp = s } }
 
 // WithBackground composites transparent pixels over this color before
-// rendering; the default is black. Its own alpha is ignored.
+// rendering; the default is black. Its own alpha is ignored. A nil color
+// keeps the default.
 func WithBackground(c color.Color) Option {
 	return func(o *options) {
+		if c == nil {
+			return
+		}
 		n, _ := color.NRGBAModel.Convert(c).(color.NRGBA)
 		n.A = 255
 		o.bg = n
@@ -136,6 +188,9 @@ func resolve(opts []Option) (options, error) {
 		ramp:   DefaultRamp,
 		bg:     defaultBG,
 		maxPix: DefaultMaxPixels,
+
+		maxCells: DefaultMaxCells,
+		maxBytes: DefaultMaxBytes,
 	}
 	for _, f := range opts {
 		if f != nil {
@@ -149,7 +204,7 @@ func resolve(opts []Option) (options, error) {
 	if o.aspect <= 0 || math.IsNaN(o.aspect) || math.IsInf(o.aspect, 0) {
 		bad = append(bad, "WithCellAspect must be > 0")
 	}
-	if !glyph.Valid(o.mode) {
+	if !glyph.Valid(glyph.Mode(o.mode)) {
 		bad = append(bad, fmt.Sprintf("WithMode(%d) is not a defined mode", int(o.mode)))
 	}
 	if o.prof < ColorTrueColor || o.prof > ColorNone {
@@ -164,37 +219,39 @@ func resolve(opts []Option) (options, error) {
 	if o.maxPix < 1 {
 		bad = append(bad, "WithMaxPixels must be >= 1")
 	}
+	if o.maxCells < 1 {
+		bad = append(bad, "WithMaxCells must be >= 1")
+	}
+	if o.maxBytes < 1 {
+		bad = append(bad, "WithMaxBytes must be >= 1")
+	}
 	if len(bad) > 0 {
 		return o, fmt.Errorf("%w: %s", ErrInvalidOption, strings.Join(bad, "; "))
 	}
 	return o, nil
 }
 
-// Convert renders an already-decoded image.
+// Convert renders an already-decoded image. An image with empty bounds or
+// a nil image (including a typed-nil pointer) is ErrInvalidOption; one
+// larger than MaxPixels is ErrTooLarge.
 func Convert(img image.Image, opts ...Option) (*Art, error) {
 	o, err := resolve(opts)
 	if err != nil {
 		return nil, err
 	}
-	if img == nil {
-		return nil, fmt.Errorf("%w: nil image", ErrInvalidOption)
-	}
-	return o.run(img), nil
+	return o.runImage(img)
 }
 
 // ConvertReader decodes r (image registry decides formats; import a decoder
-// to add one) and renders it. The reader is consumed fully. MaxPixels is
-// checked from the header before any pixel allocation.
+// to add one) and renders it. The reader is read fully into memory, capped
+// by WithMaxBytes, and MaxPixels is checked from the header before any
+// pixel allocation.
 func ConvertReader(r io.Reader, opts ...Option) (*Art, error) {
 	o, err := resolve(opts)
 	if err != nil {
 		return nil, err
 	}
-	img, err := decode(r, o.maxPix)
-	if err != nil {
-		return nil, err
-	}
-	return o.run(img), nil
+	return o.runReader(r)
 }
 
 // ConvertBytes renders an image that is already whole in memory - an HTTP
@@ -202,15 +259,7 @@ func ConvertReader(r io.Reader, opts ...Option) (*Art, error) {
 // base64-decoded blob - without the caller wrapping it in a reader. It is
 // ConvertReader over a bytes.Reader: the slice is only read, never retained.
 func ConvertBytes(b []byte, opts ...Option) (*Art, error) {
-	o, err := resolve(opts)
-	if err != nil {
-		return nil, err
-	}
-	img, err := decode(bytes.NewReader(b), o.maxPix)
-	if err != nil {
-		return nil, err
-	}
-	return o.run(img), nil
+	return ConvertReader(bytes.NewReader(b), opts...)
 }
 
 // ConvertFile opens path and runs ConvertReader on it.
@@ -223,16 +272,49 @@ func ConvertFile(path string, opts ...Option) (*Art, error) {
 	return ConvertReader(f, opts...)
 }
 
-// run is the total pipeline: prepare, geometry, crop, resize, render,
-// quantize. It cannot fail on validated options.
-func (o *options) run(img image.Image) *Art {
-	prep := raster.Prepare(img, o.bg)
-	w, h := prep.Bounds().Dx(), prep.Bounds().Dy()
-	cols, rows := 1, 1
-	if w > 0 && h > 0 {
-		cols, rows = o.geom(w, h)
+func (o *options) runReader(r io.Reader) (*Art, error) {
+	img, err := decode(r, o.maxPix, o.maxBytes)
+	if err != nil {
+		return nil, err
 	}
-	pw, ph := glyph.Size(o.mode)
+	return o.runImage(img)
+}
+
+// runImage validates img's bounds, then runs the pipeline.
+func (o *options) runImage(img image.Image) (art *Art, err error) {
+	if img == nil {
+		return nil, fmt.Errorf("%w: nil image", ErrInvalidOption)
+	}
+	defer func() {
+		// A typed-nil image (e.g. (*image.NRGBA)(nil)) panics in Bounds.
+		if recover() != nil {
+			art, err = nil, fmt.Errorf("%w: invalid image", ErrInvalidOption)
+		}
+	}()
+	b := img.Bounds()
+	w, h := int64(b.Dx()), int64(b.Dy())
+	if w <= 0 || h <= 0 {
+		return nil, fmt.Errorf("%w: image has empty bounds", ErrInvalidOption)
+	}
+	if w > o.maxPix || h > o.maxPix || w*h > o.maxPix {
+		return nil, fmt.Errorf("gotuipic: image is %dx%d, over MaxPixels %d: %w",
+			w, h, o.maxPix, ErrTooLarge)
+	}
+	return o.run(img)
+}
+
+// run is the total pipeline: prepare, geometry, crop, resize, render,
+// quantize. img must have non-empty bounds within maxPix.
+func (o *options) run(img image.Image) (*Art, error) {
+	b := img.Bounds()
+	cols, rows := o.geom(b.Dx(), b.Dy())
+	if int64(cols) > o.maxCells || int64(rows) > o.maxCells ||
+		int64(cols)*int64(rows) > o.maxCells {
+		return nil, fmt.Errorf("%w: output %dx%d cells is over WithMaxCells %d",
+			ErrInvalidOption, cols, rows, o.maxCells)
+	}
+	prep := raster.Prepare(img, o.bg)
+	pw, ph := glyph.Size(glyph.Mode(o.mode))
 	src := prep
 	if o.fit == FitCrop {
 		src = raster.CropAspect(prep, float64(cols)*o.aspect/float64(rows))
@@ -244,14 +326,14 @@ func (o *options) run(img image.Image) *Art {
 			ramp[i], ramp[j] = ramp[j], ramp[i]
 		}
 	}
-	raw := glyph.Render(grid, o.mode, cols, rows, ramp, o.prof != ColorNone)
+	raw := glyph.Render(grid, glyph.Mode(o.mode), cols, rows, ramp, o.prof != ColorNone)
 	return &Art{
 		Cols:    cols,
 		Rows:    rows,
 		Cells:   o.quantize(raw),
 		mode:    o.mode,
 		profile: o.prof,
-	}
+	}, nil
 }
 
 // geom computes the cell grid from the source size (pixels) and the
@@ -259,11 +341,13 @@ func (o *options) run(img image.Image) *Art {
 func (o *options) geom(w, h int) (cols, rows int) {
 	ratio := float64(h) / float64(w) * o.aspect
 	rnd := func(x float64) int {
-		r := int(math.Round(x))
-		if r < 1 {
-			r = 1
+		if !(x >= 1) { // also catches NaN
+			return 1
 		}
-		return r
+		if x > maxDim {
+			return maxDim
+		}
+		return int(math.Round(x))
 	}
 	switch {
 	case o.width > 0 && o.height > 0:
@@ -310,6 +394,11 @@ func (o *options) quantize(raw []glyph.Cell) []Cell {
 				cell.BG = palette.Table16[palette.Nearest16(c.BG.R, c.BG.G, c.BG.B)]
 			}
 		default: // ColorNone: colors are not emitted; leave them zero.
+		}
+		// Two colors that quantize to the same one make the glyph
+		// invisible; a space is cheaper and survives fonts without sextants.
+		if cell.BG.A != 0 && cell.FG == cell.BG {
+			cell.Rune = ' '
 		}
 		out[i] = cell
 	}

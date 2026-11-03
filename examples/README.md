@@ -28,5 +28,5 @@ Runnable `// Output:`-checked examples for godoc live in `example_test.go` at
 the repo root (`Convert`, `ConvertReader`, `ConvertBytes`, `ConvertFile`,
 `Art.WriteTo`, `Art.Cells`).
 
-Planned (see PLAN.md): `modes` (one image, every mode), `gif` (animated),
+Planned: `modes` (one image, every mode), `gif` (animated),
 `tcell` (live image viewer, separate module).

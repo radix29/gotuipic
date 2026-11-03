@@ -100,7 +100,7 @@ func main() {
 
 // terminalWidth asks the terminal, falling back to $COLUMNS then 80. It
 // deliberately avoids golang.org/x/term for now so this example stays in
-// the main module; cmd/gotuipic will do the proper ioctl (phase: CLI).
+// the main module; a planned cmd/gotuipic will do the proper ioctl.
 func terminalWidth() int {
 	if c := os.Getenv("COLUMNS"); c != "" {
 		var n int
