@@ -13,6 +13,14 @@ import (
 // origin, compositing any alpha over bg. Channels are blended straight
 // (unpremultiplied), which is good enough for background matting.
 func Prepare(src image.Image, bg color.NRGBA) *image.NRGBA {
+	// Already in the output form: nothing to convert or composite, and every
+	// later stage only reads its input, so it is passed through uncopied. This
+	// is what makes Convert cheap on an image a caller flattened once and
+	// renders many times (a viewer re-fitting on resize); the generic loop
+	// below costs an interface call and a color conversion per pixel.
+	if n, ok := src.(*image.NRGBA); ok && n.Rect.Min == (image.Point{}) && n.Opaque() {
+		return n
+	}
 	sb := src.Bounds()
 	out := image.NewNRGBA(image.Rect(0, 0, sb.Dx(), sb.Dy()))
 	obl := out.Bounds()

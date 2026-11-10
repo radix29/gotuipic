@@ -26,7 +26,9 @@ flowchart LR
 
 1. **Decode** (`decode.go`): `image.DecodeConfig` runs first, so dimensions
    above `MaxPixels` are rejected before any pixel memory is allocated (the
-   decompression-bomb guard). It then calls `image.Decode`. Formats come from
+   decompression-bomb guard). It then calls `image.Decode`. The public
+   `Decode`/`DecodeBytes` expose this step alone (with its format name) so
+   a caller rendering one image many times decodes it once. Formats come from
    the standard `image` registry, so a caller adds a format by blank-importing
    its decoder.
 2. **Prepare** (`internal/raster`): converts to `*image.NRGBA`, composites
@@ -202,7 +204,7 @@ Design rules:
 | `internal/glyph` | Modes: ASCII ramp, sextant table, exact 2-color partition, cell rendering |
 | `internal/palette` | xterm 16/256 tables, Oklab conversion, nearest color (dithering planned) |
 | `internal/ansi` | SGR encoder |
-| `formats` (planned) | Blank-imports `golang.org/x/image` WebP/BMP/TIFF decoders (opt-in) |
+| `formats` | Blank-imports `golang.org/x/image` WebP/BMP/TIFF decoders (opt-in) |
 | `cmd/gotuipic` (planned) | CLI: flags, terminal size (`golang.org/x/term`), profile from env |
 | `examples/*` | Runnable programs, including a planned `examples/tcell` (separate module) |
 

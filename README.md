@@ -1,7 +1,8 @@
 # gotuipic
 
 Convert an image to UTF-8 art: colored terminal pictures in pure Go
-(stdlib only, no CGO, no dependencies). Two styles:
+(no CGO; the core is standard-library-only, and `golang.org/x/image` is
+linked only if you import the opt-in `formats` package). Two styles:
 
 - **sextant** (default) - two colors in six subpixels per cell using the
   U+1FB00 block-sextant glyphs, split per cell by an exact minimum-error
@@ -15,7 +16,7 @@ The output is an `Art` - a grid of cells you can print as ANSI, flatten to
 runes, write to any `io.Writer`, or hand to a TUI toolkit.
 
 ```sh
-go get github.com/radix29/gotuipic   # Go 1.27+, zero dependencies
+go get github.com/radix29/gotuipic   # Go 1.27+; core has zero dependencies
 ```
 
 ## Quick start
@@ -118,21 +119,35 @@ art, err := gotuipic.Convert(im, gotuipic.WithMode(gotuipic.ModeASCII))
 
 ### Formats
 
-PNG, JPEG and GIF are registered by the core. Anything else that plugs into
-the standard `image` registry works by importing its decoder for the side
-effect - `ConvertFile`, `ConvertReader` and `ConvertBytes` all pick it up
-automatically:
+PNG, JPEG and GIF are registered by the core. BMP, TIFF and WebP come from
+the opt-in `formats` package, imported for its side effect:
 
 ```go
-import (
-	_ "golang.org/x/image/bmp"
-	_ "golang.org/x/image/tiff"
-	_ "golang.org/x/image/webp"
-)
+import _ "github.com/radix29/gotuipic/formats" // bmp, tiff, webp
 ```
 
-That is exactly what the planned opt-in `formats` package will wrap, so the
-core stays standard-library-only. Animated GIFs give the first frame for
+It blank-imports the `golang.org/x/image` decoders, so a program that never
+imports it never links `x/image` and the core stays standard-library-only.
+Anything else that plugs into the standard `image` registry works the same
+way - `ConvertFile`, `ConvertReader`, `ConvertBytes` and `Decode` all pick it
+up automatically.
+
+### Decode once, render many times
+
+`Decode`/`DecodeBytes` run the same guarded decode (`WithMaxBytes`,
+`WithMaxPixels` from the header) and return the `image.Image` plus its
+format name. A program that renders one picture repeatedly - a TUI viewer
+re-fitting on resize, zooming, or switching modes - decodes once, flattens
+once (`Flatten` composites over `WithBackground` into the opaque `NRGBA` the
+pipeline works on, which `Convert` then passes through without touching a
+pixel), and calls `Convert` per rendering:
+
+```go
+img, format, err := gotuipic.DecodeBytes(blob) // "png", "jpeg", "bmp", ...
+flat, err := gotuipic.Flatten(img)
+// on every resize:
+art, err := gotuipic.Convert(flat, gotuipic.WithWidth(cols), gotuipic.WithHeight(rows))
+``` Animated GIFs give the first frame for
 now; `ConvertFrames` is planned.
 
 ## Getting the art out

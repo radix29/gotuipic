@@ -273,7 +273,7 @@ func ConvertFile(path string, opts ...Option) (*Art, error) {
 }
 
 func (o *options) runReader(r io.Reader) (*Art, error) {
-	img, err := decode(r, o.maxPix, o.maxBytes)
+	img, _, err := decode(r, o.maxPix, o.maxBytes)
 	if err != nil {
 		return nil, err
 	}

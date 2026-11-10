@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/radix29/gotuipic"
+	_ "github.com/radix29/gotuipic/formats" // bmp, tiff, webp
 )
 
 func main() {
