@@ -106,6 +106,8 @@ type options struct {
 	prof          ColorProfile
 	ramp          string
 	invert        bool
+	brightness    float64
+	contrast      float64
 	bg            color.NRGBA
 	maxPix        int64
 	maxCells      int64
@@ -138,6 +140,16 @@ func WithColor(p ColorProfile) Option { return func(o *options) { o.prof = p } }
 // WithInvert reverses the ASCII ramp (light to dark). It affects ModeASCII
 // only and does nothing for ModeSextant.
 func WithInvert(on bool) Option { return func(o *options) { o.invert = on } }
+
+// WithBrightness shifts every channel by b*255, b in [-1, 1]; 0 (the
+// default) leaves the image unchanged. It applies to every mode and color
+// profile, after resizing and before glyph selection.
+func WithBrightness(b float64) Option { return func(o *options) { o.brightness = b } }
+
+// WithContrast scales every channel's distance from mid-gray by c, c >= 0;
+// 1 (the default) leaves the image unchanged, 0 is flat gray. It applies
+// like WithBrightness, before it.
+func WithContrast(c float64) Option { return func(o *options) { o.contrast = c } }
 
 // WithMaxPixels bounds the decoded image area; larger images fail with
 // ErrTooLarge. It applies to every Convert function. Default
@@ -182,12 +194,13 @@ func WithBackground(c color.Color) Option {
 // resolve applies defaults and options and validates them.
 func resolve(opts []Option) (options, error) {
 	o := options{
-		aspect: defaultAspect,
-		mode:   ModeSextant,
-		prof:   ColorTrueColor,
-		ramp:   DefaultRamp,
-		bg:     defaultBG,
-		maxPix: DefaultMaxPixels,
+		aspect:   defaultAspect,
+		mode:     ModeSextant,
+		prof:     ColorTrueColor,
+		ramp:     DefaultRamp,
+		bg:       defaultBG,
+		contrast: 1,
+		maxPix:   DefaultMaxPixels,
 
 		maxCells: DefaultMaxCells,
 		maxBytes: DefaultMaxBytes,
@@ -215,6 +228,12 @@ func resolve(opts []Option) (options, error) {
 	}
 	if len([]rune(o.ramp)) < 2 {
 		bad = append(bad, "WithRamp needs at least two runes")
+	}
+	if o.brightness < -1 || o.brightness > 1 || math.IsNaN(o.brightness) {
+		bad = append(bad, "WithBrightness must be within [-1, 1]")
+	}
+	if o.contrast < 0 || math.IsNaN(o.contrast) || math.IsInf(o.contrast, 0) {
+		bad = append(bad, "WithContrast must be >= 0")
 	}
 	if o.maxPix < 1 {
 		bad = append(bad, "WithMaxPixels must be >= 1")
@@ -320,6 +339,7 @@ func (o *options) run(img image.Image) (*Art, error) {
 		src = raster.CropAspect(prep, float64(cols)*o.aspect/float64(rows))
 	}
 	grid := raster.BoxResize(src, cols*pw, rows*ph)
+	raster.Adjust(grid, o.brightness, o.contrast)
 	ramp := []rune(o.ramp)
 	if o.invert {
 		for i, j := 0, len(ramp)-1; i < j; i, j = i+1, j-1 {

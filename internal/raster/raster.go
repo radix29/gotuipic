@@ -128,3 +128,21 @@ func CropAspect(src *image.NRGBA, aspect float64) *image.NRGBA {
 	}
 	return out
 }
+
+// Adjust applies brightness and contrast to src in place: each channel
+// becomes (v-128)*contrast + 128 + brightness*255, clamped to 0..255.
+// brightness 0 with contrast 1 is the identity and returns immediately.
+func Adjust(src *image.NRGBA, brightness, contrast float64) {
+	if brightness == 0 && contrast == 1 {
+		return
+	}
+	var lut [256]uint8
+	for v := range lut {
+		f := (float64(v)-128)*contrast + 128 + brightness*255
+		lut[v] = uint8(math.Min(255, math.Max(0, math.Round(f))))
+	}
+	pix := src.Pix
+	for i := 0; i+3 < len(pix); i += 4 {
+		pix[i], pix[i+1], pix[i+2] = lut[pix[i]], lut[pix[i+1]], lut[pix[i+2]]
+	}
+}

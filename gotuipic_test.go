@@ -345,3 +345,36 @@ func BenchmarkConvert(b *testing.B) {
 		})
 	}
 }
+
+func TestBrightnessContrast(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 4, 4))
+	for i := range img.Pix {
+		img.Pix[i] = 100
+	}
+	for i := 3; i < len(img.Pix); i += 4 {
+		img.Pix[i] = 255
+	}
+	fg := func(opts ...Option) uint8 {
+		a, err := Convert(img, append(opts, WithWidth(2), WithMode(ModeSextant))...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return a.Cells[0].FG.R
+	}
+	base := fg()
+	if got := fg(WithBrightness(0), WithContrast(1)); got != base {
+		t.Errorf("identity changed pixel: %d vs %d", got, base)
+	}
+	if got := fg(WithBrightness(0.2)); got <= base {
+		t.Errorf("brighter = %d, base %d", got, base)
+	}
+	if got := fg(WithContrast(2)); got >= base {
+		t.Errorf("contrast 2 on a dark pixel = %d, base %d", got, base)
+	}
+	if _, err := Convert(img, WithBrightness(2)); !errors.Is(err, ErrInvalidOption) {
+		t.Errorf("brightness 2: %v", err)
+	}
+	if _, err := Convert(img, WithContrast(-1)); !errors.Is(err, ErrInvalidOption) {
+		t.Errorf("contrast -1: %v", err)
+	}
+}

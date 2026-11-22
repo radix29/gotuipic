@@ -206,6 +206,8 @@ same one from several goroutines.
 | `WithColor(ColorTrueColor\|ColorANSI256\|ColorANSI16\|ColorNone)` | `ColorTrueColor` | color depth |
 | `WithRamp(" .:-=+*#%@")` | that ramp | ASCII glyphs, dark to light |
 | `WithInvert(true)` | false | reverse the ASCII ramp, for terminals that show glyphs as ink on a light background; **ASCII mode only**, no effect on sextant |
+| `WithBrightness(0)` | 0 | shift all channels by b\*255, b in [-1, 1]; 0 is unchanged |
+| `WithContrast(1)` | 1 | scale distance from mid-gray, c >= 0; 1 is unchanged |
 | `WithBackground(c)` | black | what transparent pixels composite onto (nil keeps the default) |
 | `WithMaxPixels(n)` | 64 Mi pixels | decompression-bomb guard, checked on the header before decoding; also applied to `Convert(image.Image)` |
 | `WithMaxCells(n)` | 1 Mi cells | cap on output `Cols*Rows`; larger requests are `ErrInvalidOption` |
