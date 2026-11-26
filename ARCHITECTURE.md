@@ -7,7 +7,7 @@ depends only on the standard library.
 
 - Module: `github.com/radix29/gotuipic`
 - Status: core implemented (both modes, ANSI encoder, root API). Parts not yet
-  built are marked "planned". `FIX_PLAN.md` tracks open review findings.
+  built are marked "planned".
 
 ## Pipeline
 

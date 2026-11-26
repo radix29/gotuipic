@@ -335,5 +335,5 @@ allocated, so a 100000x100000 PNG header is rejected cheaply.
 
 ## Status
 
-Alpha, untagged. Design: `ARCHITECTURE.md`; open review findings: `FIX_PLAN.md`; mode measurements (why sextant + ascii won):
+Alpha, untagged. Design: `ARCHITECTURE.md`; mode measurements (why sextant + ascii won):
 `tools/stylepreview/`. MIT license.

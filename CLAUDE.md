@@ -11,7 +11,6 @@ into colored UTF-8 text art for terminals. Module
 
 **Status: core implemented** (both modes, ANSI encoder, root API). Planned
 and unbuilt parts are marked as such in `ARCHITECTURE.md`.
-- `FIX_PLAN.md` lists open review findings and the order to fix them.
 - `ARCHITECTURE.md` is the design: pipeline, geometry, modes, color, API and
   package map. Read the relevant section before touching a stage, and update
   it when the code changes the design.
